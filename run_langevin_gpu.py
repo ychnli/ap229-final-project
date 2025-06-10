@@ -10,10 +10,24 @@ import os
 
 SAVE_DIR = "/scratch/users/yucli/ap229_langevin"
 
-def generate_signal(N, seed):
-    torch.manual_seed(seed)
-    x_star = torch.randn(N)
-    return x_star / x_star.norm() * torch.sqrt(torch.tensor(float(N)))
+def generate_signal(N, seed, device='cuda'):
+    gen_data = torch.Generator(device=device).manual_seed(seed)
+    x_star = torch.randn(N, generator=gen_data, device=device)
+    x_star = x_star / x_star.norm() * torch.sqrt(torch.tensor(float(N), device=device))
+    return x_star
+
+
+def generate_init(N, seed, x_star, device='cuda'):
+    # generates an initial vector orthogonal to the signal, such that the initial 
+    # correlation is ~0 
+    gen_x0 = torch.Generator(device=device).manual_seed(seed + 42) 
+    x_star = x_star.to(device)
+    r = torch.randn(N, generator=gen_x0, device=device)
+    proj_coeff = torch.dot(r, x_star) / torch.dot(x_star, x_star)
+    x_0 = r - proj_coeff * x_star
+    x_0 = x_0 / torch.norm(x_0) * torch.sqrt(torch.tensor(float(N), device=device))
+    return x_0
+
 
 def generate_spiked_matrix_tensor(
         x_star: np.ndarray | torch.Tensor,
@@ -114,41 +128,50 @@ def main():
     parser.add_argument("--M", type=int, default=5, help="Number of trials per noise setting")
     parser.add_argument("--steps", type=int, default=10000, help="Number of Langevin steps")
     parser.add_argument("--step_size", type=float, default=0.01, help="Langevin step size")
-    parser.add_argument("--output_dir", type=str, default="./results", help="Directory to save outputs")
+    parser.add_argument("--output_dir", type=str, default=SAVE_DIR, help="Directory to save outputs")
 
     args = parser.parse_args()
     N, M, steps, step_size = args.N, args.M, args.steps, args.step_size
+    output_dir = args.output_dir
 
     inv_delta2_vals = np.array([0.25, 0.50, 0.75, 1.0, 1.25, 1.50, 1.75, 2.0, 2.25])
     delta2_vals = 1.0 / inv_delta2_vals
     deltap_vals = np.array([0.25, 0.50, 0.75, 1.0, 1.25, 1.50, 1.75, 2.0, 2.25])
 
-    os.makedirs(SAVE_DIR, exist_ok=True)
-
+    os.makedirs(output_dir, exist_ok=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"running on {device}")
     for m in range(M):
-        for delta2, deltap in product(delta2_vals, deltap_vals):
-            print(f"Trial {m}: Langevin dynamics on Δ2 = {delta2}, Δp = {deltap} for N={N}...")
+        for i, delta2 in enumerate(delta2_vals):
+            for j, deltap in enumerate(deltap_vals):
+                print(f"Trial {m}: Langevin dynamics on Δ2 = {delta2}, Δp = {deltap} for N={N}...")
 
-            seed_data = 1000 * m + 1
-            seed_langevin = 1000 * m + 2
+                seed_data = 1000 * m + i * 10 + j
+                seed_langevin = 1000 * m + i * 10 + j + 5
+                
+                # generate signal 
+                x_star = generate_signal(N, seed_data, device)
+                
+                # generate data
+                Y, T = generate_spiked_matrix_tensor(x_star, delta2, deltap, p=3, seed=seed_data)
+                
+                # generate x_0
+                x0 = generate_init(N, seed_data, x_star, device=device)
+                
+                init_corr = torch.dot(x0, x_star) / N
+                print("initial correlation:", init_corr.item())  
 
-            x_star = generate_signal(N, seed=seed_data).to('cuda')
-            Y, T = generate_spiked_matrix_tensor(x_star, delta2, deltap, p=3, seed=seed_data)
+                traj = langevin_dynamics_projected_gpu(x0, Y, T, delta2, deltap, steps, step_size, device=device, seed=seed_langevin)
 
-            x0 = torch.randn(N).to('cuda')
-            x0 = x0 / torch.norm(x0) * torch.sqrt(torch.tensor(float(N))).to('cuda')
+                corr = torch.einsum('ij,j->i', traj, x_star) / N
 
-            traj = langevin_dynamics_projected_gpu(x0, Y, T, delta2, deltap, steps, step_size, device='cuda', seed=seed_langevin)
-
-            corr = torch.einsum('ij,j->i', traj, x_star) / N
-
-            tag = f"N{N}_D2{delta2:.2f}_Dp{deltap:.2f}_trial{m}"
-            torch.save({
-                'trajectory': traj.cpu(),
-                'signal': x_star.cpu(),
-                'correlation': corr.cpu()
-            }, os.path.join(SAVE_DIR, f"langevin_{tag}.pt"))
-            print('done!')
+                tag = f"N{N}_D2{delta2:.2f}_Dp{deltap:.2f}_trial{m}"
+                torch.save({
+                    'trajectory': traj.cpu(),
+                    'signal': x_star.cpu(),
+                    'correlation': corr.cpu()
+                }, os.path.join(output_dir, f"langevin_{tag}.pt"))
+                print('done!')
 
 if __name__ == "__main__":
     main()     
