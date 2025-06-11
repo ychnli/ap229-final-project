@@ -77,6 +77,9 @@ def generate_spiked_matrix_tensor(
 
 
 def langevin_dynamics_projected_gpu(x0, Y, T, delta2, deltap, steps=1000, step_size=0.01, device='cuda', seed=None):
+    """
+    Runs the Langevin algorithm for p = 3 on GPU
+    """
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -85,13 +88,11 @@ def langevin_dynamics_projected_gpu(x0, Y, T, delta2, deltap, steps=1000, step_s
     x = x / torch.norm(x) * torch.sqrt(torch.tensor(N, dtype=torch.float32, device=device))
     traj = [x.clone()]
 
-    # Precompute tensor prefactor for p=3
     tensor_coeff = math.sqrt(2.0) / (deltap * N)
 
     for _ in tqdm(range(steps), desc="Langevin algorithm progress", unit='step'):
         grad_matrix = -1.0 / delta2 * (Y @ x) / torch.sqrt(torch.tensor(N, dtype=torch.float32, device=device))
 
-        # Correct tensor gradient (no overcounting, correct prefactor)
         w = torch.einsum("ijk,j,k->i", T, x, x)
         grad_tensor = -tensor_coeff * w
 
@@ -128,10 +129,12 @@ def main():
     parser.add_argument("--M", type=int, default=5, help="Number of trials per noise setting")
     parser.add_argument("--steps", type=int, default=10000, help="Number of Langevin steps")
     parser.add_argument("--step_size", type=float, default=0.01, help="Langevin step size")
+    parser.add_argument("--initial_seed", type=int, default=0, help="Initial seed (integer)")
     parser.add_argument("--output_dir", type=str, default=SAVE_DIR, help="Directory to save outputs")
 
     args = parser.parse_args()
     N, M, steps, step_size = args.N, args.M, args.steps, args.step_size
+    init_seed = args.initial_seed
     output_dir = args.output_dir
 
     inv_delta2_vals = np.array([0.25, 0.50, 0.75, 1.0, 1.25, 1.50, 1.75, 2.0, 2.25])
@@ -141,7 +144,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"running on {device}")
-    for m in range(M):
+    for m in range(init_seed, init_seed+M):
         for i, delta2 in enumerate(delta2_vals):
             for j, deltap in enumerate(deltap_vals):
                 print(f"Trial {m}: Langevin dynamics on Δ2 = {delta2}, Δp = {deltap} for N={N}...")
