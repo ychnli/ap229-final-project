@@ -49,9 +49,9 @@ def load_data(output_dir, var="correlation"):
                        "step": list(range(steps)), "i": list(range(N_val))}
         },
         "signal": {
-            "shape": (len(trials), len(delta2s), len(deltap_vals)),
-            "dims": ["trial", "delta2", "deltap"],
-            "coords": {"trial": trials, "delta2": delta2s, "deltap": deltap_vals}
+            "shape": (len(trials), len(delta2s), len(deltap_vals), N_val),
+            "dims": ["trial", "delta2", "deltap", "i"],
+            "coords": {"trial": trials, "delta2": delta2s, "deltap": deltap_vals, "i": list(range(N_val))}
         }
     }
 
@@ -68,3 +68,20 @@ def load_data(output_dir, var="correlation"):
 
     return data_array
 
+
+def compute_hamiltonian(x, Y, T, delta2, deltap):
+    """
+    Compute the Hamiltonian H(x) at each time step for a trajectory x 
+
+    Params:
+      - x has shape (T, N)
+      - Y has shape (N, N), symmetric
+      - T has shape (N, N, N), symmetric
+    """
+    _, N = x.shape
+
+    xYx = torch.einsum("ti,tj,ij->t", x, x, Y)
+    H_matrix = -0.5 / delta2 * xYx / torch.sqrt(torch.tensor(N, dtype=torch.float32, device=x.device))
+    H_tensor = -1.0 / deltap * torch.einsum('ti,tj,tk,ijk->t', x, x, x, T) / N
+
+    return H_matrix + H_tensor 
