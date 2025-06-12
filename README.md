@@ -1,5 +1,5 @@
 ### Empirical verification of phase transitions in the Langevin algorithm for high dimensional Bayesian inference in the spiked 2 + 3-spin model
-This is a mini repo for reproducing some of the main results in Mannelli et al. (2020) [[https://iris.uniroma1.it/retrieve/handle/11573/1472273/2012359/Sarao%20Mannelli_Marvels%20and%20Pitfalls%20of%20the%20Langevin_2020.pdf]]
+This is a mini repo for reproducing some of the main results in [Mannelli et al. (2020)](https://iris.uniroma1.it/retrieve/handle/11573/1472273/2012359/Sarao%20Mannelli_Marvels%20and%20Pitfalls%20of%20the%20Langevin_2020.pdf). This is our course final project for AP229.  
 
 * `run_langevin_gpu.py` is the main script for running the Langevin algorithm.
 * `analysis.ipynb` is where the figures are generated.
